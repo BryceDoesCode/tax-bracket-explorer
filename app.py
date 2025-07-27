@@ -96,6 +96,7 @@ def get_gradient_colors(n):
 
 def make_stacked_bar(segments1, segments2=None, label1="Income 1", label2="Income 2", net_income1=None, net_income2=None, regime1=None, regime2=None):
     n = len(segments1)
+    # Use static colors for regime (original behavior)
     colors = get_static_colors(regime1) if regime1 else get_gradient_colors(n)
     fig = go.Figure()
     # Bar 1
@@ -210,34 +211,33 @@ with col2:
         if marker_cols[i].button(label):
             st.session_state['income_marker'] = val
     # Median income button below, full width, green with green hover
-    median_btn_style = '''<style>
-    div[data-testid="median-btn-container"] button {
-        background-color: #27ae60;
-        color: white;
-        width: 100%;
-        font-weight: bold;
-        font-size: 1.1em;
-        margin-top: 0.5em;
-        margin-bottom: 0.5em;
-        border: none;
-        transition: background 0.2s;
-    }
-    div[data-testid="median-btn-container"] button:hover {
-        background-color: #219150;
-    }
-    </style>'''
-    st.markdown(median_btn_style, unsafe_allow_html=True)
-    median_btn_container = st.container()
-    with median_btn_container:
-        st.markdown('<div data-testid="median-btn-container">', unsafe_allow_html=True)
-        median_btn = st.button("Median Income ($74,580)", key="median_btn")
-        st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("""
+        <style>
+        div[data-testid="stButton"] > button.median-income-btn {
+            background-color: #27ae60 !important;
+            color: white !important;
+            border: none !important;
+            width: 100% !important;
+            font-weight: 600 !important;
+            font-size: 1.1em !important;
+            margin-top: 0.5em !important;
+            margin-bottom: 0.5em !important;
+            transition: background 0.2s !important;
+        }
+        div[data-testid="stButton"] > button.median-income-btn:hover {
+            background-color: #1e874b !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    median_btn = st.button("Median Income ($74,580)", key="median_btn", help="Set income to median")
     if median_btn:
         st.session_state['income_marker'] = MEDIAN_INCOME
     # Main income slider
-    if st.session_state['income_marker'] is not None:
-        income = st.session_state['income_marker']
+    if st.session_state.get('income_marker') == MEDIAN_INCOME:
+        income = MEDIAN_INCOME
     else:
+        income = st.session_state.get('income_marker', MEDIAN_INCOME)
+    if income is None:
         income = MEDIAN_INCOME
     income = smart_slider("Income", 0, 5_000_000, income)
     # Reset marker if slider is changed
@@ -247,11 +247,16 @@ with col2:
     if compare:
         marker2_clicked = None
         marker2_cols = st.columns(len(INCOME_MARKERS))
+        # Add comparison regime selector
+        regime2 = st.selectbox("Comparison Tax Bracket Regime", list(TAX_BRACKETS.keys()), key="regime2_select", index=list(TAX_BRACKETS.keys()).index(regime))
         if 'income2_marker' not in st.session_state:
             st.session_state['income2_marker'] = None
         for i, (label, val) in enumerate(INCOME_MARKERS.items()):
             if marker2_cols[i].button(label, key=f"cmp_{label}"):
                 st.session_state['income2_marker'] = val
+        cmp_median_btn = st.button("Median Income ($74,580)", key="cmp_median_btn", help="Set comparison income to median")
+        if cmp_median_btn:
+            st.session_state['income2_marker'] = MEDIAN_INCOME
         if st.session_state['income2_marker'] is not None:
             income2 = st.session_state['income2_marker']
         else:
@@ -261,6 +266,7 @@ with col2:
             st.session_state['income2_marker'] = None
     else:
         income2 = None
+        regime2 = None
         st.session_state['income2_marker'] = None
 
 with col1:
@@ -272,23 +278,13 @@ with col1:
     total_tax2 = None
     net_income2 = None
     eff_rate2 = None
-    # Only show total taxed bar for comparison, not for primary
     fig = make_stacked_bar(segments1, None, label1="Primary", net_income1=net_income1, regime1=regime)
-    if compare and income2 is not None:
-        segments2 = calculate_bracket_segments(income2, TAX_BRACKETS[regime])
+    if compare and income2 is not None and regime2 is not None:
+        segments2 = calculate_bracket_segments(income2, TAX_BRACKETS[regime2])
         total_tax2 = sum(s["tax"] for s in segments2)
         net_income2 = income2 - total_tax2
         eff_rate2 = total_tax2 / income2 if income2 > 0 else 0
-        fig = make_stacked_bar(segments1, segments2, label1="Primary", label2="Comparison", net_income1=net_income1, net_income2=net_income2, regime1=regime, regime2=regime)
-        fig.add_trace(go.Bar(
-            x=["Comparison Taxed"],
-            y=[total_tax2],
-            base=[0],
-            marker_color="rgba(200,0,0,0.7)",
-            name="Total Taxed (Comparison)",
-            hovertemplate="Total Taxed: $%{y:,.0f}<extra></extra>",
-            width=0.2
-        ))
+        fig = make_stacked_bar(segments1, segments2, label1="Primary", label2="Comparison", net_income1=net_income1, net_income2=net_income2, regime1=regime, regime2=regime2)
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
     if compare and income2 is not None and segments2 is not None and total_tax2 is not None and net_income2 is not None and eff_rate2 is not None:
         st.markdown(f"**Primary:** Total Tax Paid: `${total_tax1:,.0f}` | Net Income: `${net_income1:,.0f}` | Effective Rate: `{eff_rate1*100:.2f}%`  ")
